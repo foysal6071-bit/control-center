@@ -22,6 +22,12 @@ jobs:
           DIR=$(dirname "$(find src -name settings.gradle.kts | head -n1)")
           echo "PROJECT_DIR=$DIR" >> $GITHUB_ENV
 
+      - name: Sign release with debug key (no keystore needed)
+        working-directory: ${{ env.PROJECT_DIR }}
+        run: |
+          sed -i 's|if (keystorePath != null) signingConfig = signingConfigs.getByName("release")|signingConfig = if (keystorePath != null) signingConfigs.getByName("release") else signingConfigs.getByName("debug")|' app/build.gradle.kts
+          grep -n "signingConfig =" app/build.gradle.kts
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -31,15 +37,26 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Build debug APK
+      - name: Build release APK
         working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          gradle assembleDebug --console=plain > build.log 2>&1 || {
+          gradle assembleRelease --console=plain > build.log 2>&1 || {
             grep -E '^e: |What went wrong|error:' -A2 build.log | head -30 | while IFS= read -r l; do echo "::error::$l"; done
             exit 1
           }
 
+      - name: Rename APK
+        run: |
+          cp "${{ env.PROJECT_DIR }}"/app/build/outputs/apk/release/*.apk ControlCenter.apk
+
       - uses: actions/upload-artifact@v4
         with:
           name: control-center-apk
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: ControlCenter.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: ControlCenter.apk
